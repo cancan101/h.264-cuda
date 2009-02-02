@@ -36,6 +36,12 @@
 #include "common/visualize.h"
 #endif
 
+#include "pyramid/pyramidRunner.h"
+#include "pyramid/cuda/cuda-me.h"
+#include "pyramid/gold/tests.h"
+#define UNIT_TESTS 0
+#define RUN_CUDA 0
+
 //#define DEBUG_MB_TYPE
 
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
@@ -1136,6 +1142,24 @@ static inline void x264_slice_init( x264_t *h, int i_nal_type, int i_global_qp )
     x264_macroblock_slice_init( h );
 }
 
+#include <sys/time.h>
+
+int timerCycles = 0;
+double timerTime = 0;
+
+static struct timeval t;
+
+void cuResetTimer() {
+  gettimeofday(&t, NULL);
+}
+
+float cuGetTimer() { // result in miliSec
+  static struct timeval s;
+  gettimeofday(&s, NULL);
+
+  return (s.tv_sec - t.tv_sec) * 1000.0f + (s.tv_usec - t.tv_usec) / 1000.0f;
+}
+
 static void x264_slice_write( x264_t *h )
 {
     int i_skip;
@@ -1165,6 +1189,39 @@ static void x264_slice_write( x264_t *h )
     i_mb_y = h->sh.i_first_mb / h->sps->i_mb_width;
     i_mb_x = h->sh.i_first_mb % h->sps->i_mb_width;
     i_skip = 0;
+
+    //This will run the unit tests. Outputs "Done! if they pass.
+    if(h->i_frame==0 && UNIT_TESTS){
+    	mainTests(h);
+    }
+
+	int q;
+	int* mvX=NULL, *mvY=NULL;
+	int* mvX2=NULL, *mvY2=NULL;
+	int* mvX3=NULL, *mvY3=NULL;
+	int* mvX4=NULL, *mvY4=NULL;
+
+	if(RUN_CUDA && h->i_frame >0){
+		 if(h->i_ref0>0){
+
+			cuResetTimer();
+			goldMVs2(h, &mvX, &mvY, 8, 2);
+			float goldTime=cuGetTimer();
+
+			//goldMVs(h, &mvX3, &mvY3, 8, 2);
+			//goldMVs2(h, &mvX4, &mvY4, 8, 2);
+			//goldMVs2(h, &mvX4, &mvY4, 8, 1);
+
+			//cuda_me(h, &mvX2, &mvY2); //Run a Kernel to get driver loaded, etc.
+			cuResetTimer();
+			cuda_me2(h, &mvX2, &mvY2);
+			float cudaTime=cuGetTimer();
+
+			printf("CUDA =%.1f ms\nGold=%.1f ms\n",cudaTime, goldTime);
+
+		 }
+	}
+ 	cuResetTimer();
 
     while( (mb_xy = i_mb_x + i_mb_y * h->sps->i_mb_width) < h->sh.i_last_mb )
     {
@@ -1217,6 +1274,12 @@ static void x264_slice_write( x264_t *h )
         }
 
 #if VISUALIZE
+        //Replace theirs with ours for visualization purposes. mvX2 might need to be changed, depending on source.
+        if(mvX != NULL && mvY != NULL){
+			h->mb.cache.mv[0][X264_SCAN8_0][0] = mvX2[mb_xy]<<2;
+			h->mb.cache.mv[0][X264_SCAN8_0][1] = mvY2[mb_xy]<<2;
+        }
+
         if( h->param.b_visualize )
             x264_visualize_mb( h );
 #endif
@@ -1263,6 +1326,43 @@ static void x264_slice_write( x264_t *h )
             i_mb_x = 0;
         }
     }
+
+	float tA3=cuGetTimer();
+
+	printf("X264   =%.1f msec\n",tA3);
+
+    /*if(mvX != NULL && mvY != NULL && mvX2 != NULL && mvY2 != NULL){
+        for(q =0;q< h->sh.i_last_mb;q++){
+        	if((mvX)[q]!=0 || (mvY)[q] !=0){
+        		printf("%i: (%i %i) (%i %i)\n",q, mvX[q], mvY[q], mvX2[q], mvY2[q]);
+        	}else
+        		if( mvX[q] !=  mvX2[q]  ||  mvY[q] !=  mvY2[q]){
+        		printf("%i: (%i %i) (%i %i)\n",q, mvX[q], mvY[q], mvX2[q], mvY2[q]);
+        	}
+        }
+    }*/
+
+    if(mvX != NULL && mvY != NULL && mvX2 != NULL && mvY2 != NULL){
+		for(q =0 ;q<h->sh.i_last_mb*16;q+=16 ){
+			if(h->mb.mv[0][q][0]!=0 || h->mb.mv[0][q][1]!=0 || (mvX)[q>>4]!=0 || (mvY)[q>>4] !=0|| (mvX2)[q>>4]!=0 || (mvY2)[q>>4] !=0){
+				//printf("%i: x(%hi %hi) G1(%i %i) C(%i %i) G2(%i %i)\n",q>>4,h->mb.mv[0][q][0]>>2, h->mb.mv[0][q][1]>>2,mvX[q>>4], mvY[q>>4], mvX2[q>>4], mvY2[q>>4],mvX3[q>>4], mvY3[q>>4]);
+				//printf("%i: x(%hi %hi) G1(%i %i) G2(%i %i) NG(%i %i)\n",q>>4,h->mb.mv[0][q][0]>>2, h->mb.mv[0][q][1]>>2,mvX[q>>4], mvY[q>>4],mvX3[q>>4], mvY3[q>>4], mvX4[q>>4], mvY4[q>>4]);
+				printf("%i: x(%hi %hi) G(%i %i) C(%i %i)\n",q>>4,h->mb.mv[0][q][0]>>2, h->mb.mv[0][q][1]>>2,mvX[q>>4], mvY[q>>4],mvX2[q>>4], mvY2[q>>4]);
+				//assert(mvX[q>>4]== mvX4[q>>4] && mvY[q>>4]==mvY4[q>>4]);
+			}
+		}
+    }
+
+   /* if(mvX3 != NULL && mvY3 != NULL && mvX4 != NULL && mvY4 != NULL){
+		for(q =0 ;q<h->sh.i_last_mb*16;q+=16 ){
+			if(mvX3[q>>4]!=0 || mvY3[q>>4] !=0|| (mvX4)[q>>4]!=0 || (mvY4)[q>>4] !=0){
+				printf("%i: x(%hi %hi) C(%i %i) NG(%i %i)\n",q>>4,h->mb.mv[0][q][0]>>2, h->mb.mv[0][q][1]>>2,mvX2[q>>4], mvY2[q>>4],mvX4[q>>4], mvY4[q>>4]);
+				assert(mvX[q>>4]== mvX4[q>>4] && mvY[q>>4]==mvY4[q>>4]);
+				printf("%i: x(%hi %hi) G(%i %i) NG(%i %i)\n",q>>4,h->mb.mv[0][q][0]>>2, h->mb.mv[0][q][1]>>2,mvX3[q>>4], mvY3[q>>4],mvX4[q>>4], mvY4[q>>4]);
+			}
+		}
+    }*/
+
 
     if( h->param.b_cabac )
     {
