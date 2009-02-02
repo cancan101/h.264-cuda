@@ -404,7 +404,7 @@ static ALWAYS_INLINE void x264_macroblock_cache_intra8x8_pred( x264_t *h, int x,
 #define array_non_zero_int array_non_zero_int_c
 static ALWAYS_INLINE int array_non_zero_int_c( void *v, int i_count )
 {
-    uint64_t *x = v;
+    uint64_t *x = (uint64_t*)v;
     if(i_count == 8)
         return !!x[0];
     else if(i_count == 16)

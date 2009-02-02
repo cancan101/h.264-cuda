@@ -10,10 +10,30 @@ SRCS = common/mc.c common/predict.c common/pixel.c common/macroblock.c \
        common/quant.c common/vlc.c \
        encoder/analyse.c encoder/me.c encoder/ratecontrol.c \
        encoder/set.c encoder/macroblock.c encoder/cabac.c \
-       encoder/cavlc.c encoder/encoder.c
+       encoder/cavlc.c encoder/encoder.c \
+       encoder/pyramid/gold/gold.c encoder/pyramid/gold/tests.c encoder/pyramid/pyramidRunner.c   encoder/pyramid/gold/gold2.c
 
 SRCCLI = x264.c matroska.c muxers.c
 
+#Open GL Debugger for cude
+OPENGL		:= 0
+
+ifeq (OPENGL,1)
+USEGLLIB    := 1
+USEGLUT     := 1
+else
+USEGLLIB    := 0
+USEGLUT     := 0
+endif
+
+
+# Cuda source files (compiled with nvcc)
+CUFILES		:= encoder/pyramid/cuda/cuda-me.cu 
+#encoder/hi-cuda-me.cu encoder/hier.cu
+
+ifeq (OPENGL,1)
+CUFILES		+= encoder/glDebug.cu
+endif
 # Visualization sources
 ifeq ($(VIS),yes)
 SRCS   += common/visualize.c common/display-x11.c
@@ -69,23 +89,30 @@ OBJS = $(SRCS:%.c=%.o)
 OBJCLI = $(SRCCLI:%.c=%.o)
 DEP  = depend
 
+include cuda.mk
+
 .PHONY: all default fprofiled clean distclean install uninstall dox test testclean
 
 default: $(DEP) x264$(EXE)
 
-libx264.a: .depend $(OBJS) $(OBJASM)
-	ar rc libx264.a $(OBJS) $(OBJASM)
+libx264.a: .depend $(OBJS) $(CUDAOBJS) $(CUBINS) $(OBJASM)
+	ar rc libx264.a $(OBJS) $(CUDAOBJS) $(CUBINS) $(OBJASM)
 	ranlib libx264.a
 
-$(SONAME): .depend $(OBJS) $(OBJASM)
-	$(CC) -shared -o $@ $(OBJS) $(OBJASM) $(SOFLAGS) $(LDFLAGS)
+$(SONAME): .depend $(OBJS) $(CUDAOBJS) $(CUBINS) $(OBJASM)
+	$(CC) -shared -o $@ $(OBJS) $(CUDAOBJS) $(CUBINS) $(OBJASM) $(SOFLAGS) $(LDFLAGS) $(CUDALFFLAGS)
 
-x264$(EXE): $(OBJCLI) libx264.a 
-	$(CC) -o $@ $+ $(LDFLAGS)
+x264$(EXE): $(OBJCLI) libx264.a
+	$(CC) -o $@ $+ $(LDFLAGS) $(CUDALFFLAGS)
 
 checkasm: tools/checkasm.o libx264.a
 	$(CC) -o $@ $+ $(LDFLAGS)
 
+#debug: 
+#	@echo '$(CUDACFLAGS)'
+#	@echo '$(LDFLAGS)'
+#	@echo '$(LIB)'
+	
 %.o: %.asm
 	$(AS) $(ASFLAGS) -o $@ $<
 # delete local/anonymous symbols, so they don't show up in oprofile
@@ -134,7 +161,7 @@ fprofiled:
 	mv config.mak2 config.mak
 endif
 
-clean:
+clean: cleancuda
 	rm -f $(OBJS) $(OBJASM) $(OBJCLI) $(SONAME) *.a x264 x264.exe .depend TAGS
 	rm -f checkasm checkasm.exe tools/checkasm.o
 	rm -f $(SRC2:%.c=%.gcda) $(SRC2:%.c=%.gcno)
