@@ -3,6 +3,8 @@
  *
  *  Created on: Jan 27, 2009
  *      Author: alex
+ *
+ *      These are the rewritten gold gold to take advantage of x264 functions
  */
 
 #include "gold2.h"

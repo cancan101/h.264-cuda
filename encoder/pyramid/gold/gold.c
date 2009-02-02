@@ -1,5 +1,5 @@
 /*
- * main.c
+ * gold.c
  *
  *  Created on: Jan 15, 2009
  *      Author: Alex Rothberg (rothberg@mit.edu)

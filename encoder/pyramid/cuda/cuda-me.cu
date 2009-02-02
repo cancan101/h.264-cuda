@@ -19,12 +19,16 @@ texture<uint8_t, 2, cudaReadModeElementType> lastTex;
 
 __global__ void minSAD(unsigned, int* mvXs,int* mvYs, unsigned *, unsigned *);
 __global__ void minSAD2(unsigned bw, int* mvXs,int* mvYs, unsigned* minSAD, unsigned* bestLoc);
+
+//These are the new and better written versions.
 __global__ void minSAD2a(unsigned bw, unsigned bwUp, int2* inMV, int2* outMV);
 __global__ void minSADa(unsigned bw, unsigned bwUp, int2* inMV, int2* outMV);
 uint8_t* last;
 unsigned frameNumber=0;
 
 void runCuda(uint8_t *current,  uint8_t *ref, int strideCur, int strideRef, int width, int height,  int** mvX, int** mvY, int A,int  *mvsXD, int* mvsY);
+
+//This is the new and more efficient implementation. It saves device/host copies.
 void runCudaA(uint8_t *current,  uint8_t *ref, int strideCur, int strideRef, int width, int height,  int2** mvOut, int A,int2  *mvsX);
 
 void cuda_me(x264_t *h, int** mvX, int** mvY){
